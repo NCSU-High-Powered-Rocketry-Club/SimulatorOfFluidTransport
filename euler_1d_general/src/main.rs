@@ -11,9 +11,6 @@ use crate::constants::*;
 use crate::riemann_solvers::ldfss_flux;
 use crate::physics::{get_sound_speed,get_pressure};
 
-
-
-
 // ============================================================================
 // 4. MAIN SOLVER
 // ============================================================================
@@ -78,25 +75,16 @@ fn main() -> std::io::Result<()> {
         // 2. Compute Fluxes at Interfaces
         // We have N cells, so we have N+1 interfaces.
         // Interface i is between Cell i-1 and Cell i.
-        // We store fluxes in a generic Vec for simplicity or an Array2.
-        // Let's use a Vec of [f64; 3] to hold fluxes at i+1/2.
-        // Indices: 0 to N. Index i corresponds to interface i-1/2 ?? 
-        // Let's stick to: flux[i] is flux at right face of cell i.
-        
-
-        for i in 0..N_CELLS-1 {
+        for i in 1..N_CELLS {
             // Get Left and Right states for the interface between i and i+1
-            let u_l = u.row(i);
-            let u_r = u.row(i + 1);
+            let u_l = u.row(i-1);
+            let u_r = u.row(i);
             
-            fluxes.row_mut(i+1)  .assign( &ldfss_flux(u_l.as_slice().unwrap(), u_r.as_slice().unwrap())  );
+            fluxes.row_mut(i)  .assign( &ldfss_flux(u_l.as_slice().unwrap(), u_r.as_slice().unwrap())  );
         }
-
         // Boundary Conditions (Transmissive / Zero Gradient)
         // Flux at 0 (Left Boundary) computed using cell 0 as both L and R (approximated)
         // or just copying flux from neighbor. 
-        // Standard Sod: Left/Right boundaries don't interact within T=0.2, 
-        // so we can just impose static fluxes or zero gradient.
         fluxes.row_mut(0)       .assign( &ldfss_flux(u.row(0).as_slice().unwrap(), u.row(0).as_slice().unwrap()) );
         fluxes.row_mut(N_CELLS) .assign( &ldfss_flux(u.row(N_CELLS-1).as_slice().unwrap(), u.row(N_CELLS-1).as_slice().unwrap()) );
 
@@ -105,17 +93,11 @@ fn main() -> std::io::Result<()> {
         for i in 1..N_CELLS-1 {
             let f_right = fluxes.row(i+1);
             let f_left  = fluxes.row(i);
-            
-            for var in 0..3 {
-                u_new[[i, var]] = u[[i, var]] - (dt / dx) * (f_right[var] - f_left[var]);
-            }
+            u_new.row_mut(i).assign(  &(&u.row(i) - (dt/dx)*(&f_right - &f_left))  );
         }
-
         // Apply BCs to states (Zero Gradient)
-        for var in 0..3 {
-            u_new[[0, var]] = u_new[[1, var]];
-            u_new[[N_CELLS-1, var]] = u_new[[N_CELLS-2, var]];
-        }
+        u_new.row_mut(0).assign(&u_new.row(1).to_owned());
+        u_new.row_mut(N_CELLS-1).assign(&u_new.row(N_CELLS-2).to_owned());
 
         // Swap buffers
         u.assign(&u_new);
