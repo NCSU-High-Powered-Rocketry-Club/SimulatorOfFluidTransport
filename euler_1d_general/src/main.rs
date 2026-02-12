@@ -1,130 +1,18 @@
-use ndarray::{Array1,Array2,array};
+use ndarray::{Array1,Array2};
 use std::fs::File;
 use std::io::Write;
 
-// ============================================================================
-// 1. PHYSICAL CONSTANTS & CONFIGURATION
-// ============================================================================
-const GAMMA: f64 = 1.4;          // Ratio of specific heats for ideal gas
-const N_CELLS: usize = 400;      // Number of spatial grid points
-const L_DOMAIN: f64 = 1.0;       // Length of the domain (meters)
-const T_FINAL: f64 = 0.2;        // Final simulation time (seconds)
-const CFL: f64 = 0.5;            // Courant-Friedrichs-Lewy stability number
 
-// ============================================================================
-// 2. PHYSICS HELPER FUNCTIONS (Equation of State)
-// ============================================================================
+mod constants;
+mod riemann_solvers;
+mod physics;
 
-/// Calculates Pressure from Conserved Variables: p = (gamma - 1) * (E - 0.5 * rho * u^2)
-/// State vector `u` is [rho, rho*u, E]
-fn get_pressure(q: &[f64]) -> f64 {
-    let rho = q[0];
-    let mom = q[1];
-    let energy = q[2];
-    
-    // Safety check for vacuum or invalid state
-    if rho <= 1.0e-10 { return 1.0e-10; }
-    
-    let u_velocity = mom / rho;
-    let kinetic_energy = 0.5 * rho * u_velocity * u_velocity;
-    let internal_energy = energy - kinetic_energy;
-    
-    (GAMMA - 1.0) * internal_energy
-}
+use crate::constants::*;
+use crate::riemann_solvers::ldfss_flux;
+use crate::physics::{get_sound_speed,get_pressure};
 
-/// Calculates Sound Speed: c = sqrt(gamma * p / rho)
-fn get_sound_speed(q: &[f64]) -> f64 {
-    let p = get_pressure(q);
-    let rho = q[0];
-    (GAMMA * p / rho).sqrt()
-}
 
-// ============================================================================
-// 3. NUMERICAL FLUX: EDWARDS' LDFSS (Low-Diffusion Flux-Splitting Scheme)
-// ============================================================================
-// Note: This implements the core AUSM+ logic typical of Edwards' LDFSS.
-// It splits fluxes into Convective (Mass/Velocity) and Pressure parts separately.
 
-fn ldfss_flux(q_l: &[f64], q_r: &[f64]) -> Array1::<f64> {
-    // 1. Primitive Variables
-    let rho_l = q_l[0];
-    let u_l   = q_l[1] / rho_l;
-    let p_l   = get_pressure(q_l);
-    let h_l   = (q_l[2] + p_l) / rho_l; // Total Enthalpy
-    let a_l   = (GAMMA * p_l / rho_l).sqrt(); // Sound speed
-
-    let rho_r = q_r[0];
-    let u_r   = q_r[1] / rho_r;
-    let p_r   = get_pressure(q_r);
-    let h_r   = (q_r[2] + p_r) / rho_r;
-    let a_r   = (GAMMA * p_r / rho_r).sqrt();
-
-    // 2. Interface Sound Speed (Simple arithmetic mean often used in LDFSS)
-    let a_half = 0.5 * (a_l + a_r);
-
-    // 3. Mach Numbers at Interface
-    let m_l = u_l / a_half;
-    let m_r = u_r / a_half;
-
-    // 4. Split Mach Polynomials M+ (Left) and M- (Right)
-    // Using standard Van Leer / AUSM polynomials
-    let m_plus = if m_l.abs() >= 1.0 {
-        0.5 * (m_l + m_l.abs())
-    } else {
-        0.25 * (m_l + 1.0).powi(2)
-    };
-
-    let m_minus = if m_r.abs() >= 1.0 {
-        0.5 * (m_r - m_r.abs())
-    } else {
-        -0.25 * (m_r - 1.0).powi(2)
-    };
-
-    // 5. Interface Mach Number
-    let m_half = m_plus + m_minus;
-
-    // 6. Split Pressure Polynomials P+ and P-
-    let p_plus = if m_l.abs() >= 1.0 {
-        if m_l > 0.0 { 1.0 } else { 0.0 }
-    } else {
-        0.25 * (m_l + 1.0).powi(2) * (2.0 - m_l)
-    };
-
-    let p_minus = if m_r.abs() >= 1.0 {
-        if m_r > 0.0 { 0.0 } else { 1.0 }
-    } else {
-        0.25 * (m_r - 1.0).powi(2) * (2.0 + m_r)
-    };
-
-    // 7. Assemble Fluxes
-    // F = F_convective + F_pressure
-    // The convective flux is determined by the sign of the Interface Mach Number (Upwinding)
-    
-    let mass_flux = a_half * m_half; 
-
-    // Compute convective vector based on upwinding direction of mass_flux
-    let (rho_up, u_up, h_up) = if mass_flux >= 0.0 {
-        (rho_l, u_l, h_l)
-    } else {
-        (rho_r, u_r, h_r)
-    };
-
-    // Convective Flux Terms: [rho*u, rho*u^2, rho*u*H]
-    let f_conv_0 = mass_flux * rho_up;
-    let f_conv_1 = mass_flux * rho_up * u_up;
-    let f_conv_2 = mass_flux * rho_up * h_up;
-
-    // Pressure Flux Terms: [0, p, 0]
-    // The pressure at interface is weighted blend of P_L and P_R
-    let p_half = p_plus * p_l + p_minus * p_r;
-
-    // Total Flux
-    array![
-        f_conv_0,
-        f_conv_1 + p_half,
-        f_conv_2 // Enthalpy flux contains the work term
-    ]
-}
 
 // ============================================================================
 // 4. MAIN SOLVER
