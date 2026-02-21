@@ -1,4 +1,4 @@
-use ndarray::{Array1,Array2};
+use ndarray::{Array1,Array2,ArrayViewMut1};
 use std::fs::File;
 use std::io::Write;
 
@@ -9,24 +9,18 @@ mod physics;
 mod type_solution;
 
 use crate::constants::*;
-use crate::riemann_solvers::ldfss_flux;
+use crate::riemann_solvers::riemann_solver;
 use crate::physics::{get_sound_speed,get_pressure};
 use crate::type_solution::SolutionArray;
 
 // ============================================================================
-// 4. MAIN SOLVER
+// MAIN SOLVER
 // ============================================================================
 
 fn main() -> std::io::Result<()> {
     // --- A. Grid Initialization ---
     let dx = L_DOMAIN / (N_CELLS as f64);
     // 
-    // --- Case specific numbers setup ---
-    const NVARS: usize = N_VARIABLES_EULER_1D;
-    const NDENS: usize = 0;
-    const NMOMX: usize = 1;
-    const NERGY: usize = 2;
-    
     // We use Array2 for the state vector U. 
     // Shape: (N_CELLS, 3) -> Rows are cells, Columns are [rho, mom, E]
     let mut u      = SolutionArray::new(N_CELLS,   NVARS);
@@ -34,24 +28,9 @@ fn main() -> std::io::Result<()> {
     let mut fluxes = SolutionArray::new(N_CELLS+1, NVARS);
     
     // --- B. Initial Conditions (Sod Shock Tube) ---
-    // Left:  Rho=1.0,   P=1.0, u=0.0
-    // Right: Rho=0.125, P=0.1, u=0.0
-    // Diaphragm at x = 0.5
     for i in 0..N_CELLS {
         let x = (i as f64 + 0.5) * dx;
-        
-        let (rho, p, velocity) = if x < 0.5 * L_DOMAIN {
-            (1.0, 1.0, 0.0)
-        } else {
-            (0.125, 0.1, 0.0)
-        };
-
-        let mom = rho * velocity;
-        let energy = p / (GAMMA - 1.0) + 0.5 * rho * velocity * velocity;
-
-        u.data[[i, NDENS]] = rho;
-        u.data[[i, NMOMX]] = mom;
-        u.data[[i, NERGY]] = energy;
+        initialize_sod_shock(x, u.row_mut(i))
     }
 
     // --- C. Time Loop ---
@@ -74,7 +53,6 @@ fn main() -> std::io::Result<()> {
                 max_speed = wave_speed;
             }
         }
-        
         let mut dt = CFL * dx / max_speed;
         if t + dt > T_FINAL {
             dt = T_FINAL - t;
@@ -88,22 +66,41 @@ fn main() -> std::io::Result<()> {
             let u_l = u.row(i-1);
             let u_r = u.row(i);
             
-            fluxes.row_mut(i).assign( &ldfss_flux(u_l.as_slice().unwrap(), u_r.as_slice().unwrap())  );
+            // Compute the common interface flux values
+            fluxes.row_mut(i).assign(
+                &riemann_solver(
+                    u_l.as_slice().unwrap(), 
+                    u_r.as_slice().unwrap(),
+                    RIEMANN_OPT)
+            );
         }
         // Boundary Conditions (Transmissive / Zero Gradient)
         // Flux at 0 (Left Boundary) computed using cell 0 as both L and R (approximated)
         // or just copying flux from neighbor. 
-        fluxes.row_mut(0)      .assign( &ldfss_flux(u.row(0).as_slice().unwrap(), u.row(0).as_slice().unwrap()) );
-        fluxes.row_mut(N_CELLS).assign( &ldfss_flux(u.row(N_CELLS-1).as_slice().unwrap(), u.row(N_CELLS-1).as_slice().unwrap()) );
+        fluxes.row_mut(0).assign( 
+            &riemann_solver(
+                u.row(0).as_slice().unwrap(), 
+                u.row(0).as_slice().unwrap(),
+                RIEMANN_OPT)
+        );
+        fluxes.row_mut(N_CELLS).assign(
+            &riemann_solver(
+                u.row(N_CELLS-1).as_slice().unwrap(),
+                u.row(N_CELLS-1).as_slice().unwrap(),
+                RIEMANN_OPT)
+        );
 
         // 3. Update Solution (Finite Volume Formulation)
         // U_new = U - dt/dx * (F_right - F_left)
-        for i in 1..N_CELLS-1 {
+        for i in 2..N_CELLS-2 {
             let f_right = fluxes.row(i+1);
             let f_left  = fluxes.row(i);
-            u_new.row_mut(i).assign(  &(&u.row(i) - (dt/dx)*(&f_right - &f_left))  );
+            u_new.row_mut(i).assign(  &(
+                &u.row(i) - (dt/dx)*(&f_right - &f_left)
+            ));
         }
-        // Apply BCs to states (Zero Gradient)
+        
+        // hardcode pinned BC states (Zero Gradient)
         let mut u_ghost = u_new.row(1).to_owned();
         u_new.row_mut(0).assign(&u_ghost);
         
@@ -139,4 +136,23 @@ fn main() -> std::io::Result<()> {
     }
 
     Ok(())
+}
+//
+pub (crate) fn initialize_sod_shock(x: f64, mut uout: ArrayViewMut1<f64>) {
+    // Left:  Rho=1.0,   P=1.0, u=0.0
+    // Right: Rho=0.125, P=0.1, u=0.0
+    // Diaphragm at x = 0.5
+    
+    let (rho, p, velocity) = if x < 0.5 * L_DOMAIN {
+        (1.0, 1.0, 0.0)
+    } else {
+        (0.125, 0.1, 0.0)
+    };
+
+    let mom = rho * velocity;
+    let energy = p / (GAMMA - 1.0) + 0.5 * rho * velocity * velocity;
+
+    uout[NDENS] = rho;
+    uout[NMOMX] = mom;
+    uout[NERGY] = energy;
 }
