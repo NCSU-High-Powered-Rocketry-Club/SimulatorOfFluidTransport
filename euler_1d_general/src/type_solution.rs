@@ -1,11 +1,11 @@
-use ndarray::{Array2};
+use ndarray::{Array1,Array2,ArrayView1,ArrayViewMut1};
 
 use crate::constants::*;
 
-pub(crate) struct Solution_Array {
+pub(crate) struct SolutionArray {
     
     // Since array for holding the data
-    data : Array2::<f64>,
+    pub(crate) data : Array2::<f64>,
 }
 
 impl SolutionArray {
@@ -14,21 +14,23 @@ impl SolutionArray {
         Self{data : Array2::<f64>::zeros((num_points, num_variables))} 
     }
     
-    pub fn density(&self) -> ArrayView1<f64> {
-        self.data.column(0)
+    pub fn column(&self, c : usize) -> ArrayView1<'_,f64> {
+        self.data.column(c)
     }
-    pub fn density_mut(&mut self) -> ArrayViewMut1<f64> {
-        self.data.column_mut(0)
+    pub fn column_mut(&mut self, c : usize) -> ArrayViewMut1<'_,f64> {
+        self.data.column_mut(c)
     }
-    pub fn density_owned(&self) -> Array1<f64> {
-        self.data.column(0).to_owned()
+    pub fn column_owned(&self, c : usize) -> Array1<f64> {
+        self.data.column(c).to_owned()
     }
 
-    pub fn momentum(&self) -> Array1::<f64> {
-        self.column(1)
-    }   
-    
-    pub fn energy(&self) -> Array1::<f64> {
-        self.column(2)
+    pub fn row(&self, c : usize) -> ArrayView1<'_,f64> {
+        self.data.row(c)
+    }
+    pub fn row_mut(&mut self, c : usize) -> ArrayViewMut1<'_,f64> {
+        self.data.row_mut(c)
+    }
+    pub fn row_owned(&self, c : usize) -> Array1<f64> {
+        self.data.row(c).to_owned()
     }
 }

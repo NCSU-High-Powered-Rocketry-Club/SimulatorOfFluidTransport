@@ -6,10 +6,12 @@ use std::io::Write;
 mod constants;
 mod riemann_solvers;
 mod physics;
+mod type_solution;
 
 use crate::constants::*;
 use crate::riemann_solvers::ldfss_flux;
 use crate::physics::{get_sound_speed,get_pressure};
+use crate::type_solution::SolutionArray;
 
 // ============================================================================
 // 4. MAIN SOLVER
@@ -18,12 +20,18 @@ use crate::physics::{get_sound_speed,get_pressure};
 fn main() -> std::io::Result<()> {
     // --- A. Grid Initialization ---
     let dx = L_DOMAIN / (N_CELLS as f64);
+    // 
+    // --- Case specific numbers setup ---
+    const NVARS: usize = N_VARIABLES_EULER_1D;
+    const NDENS: usize = 0;
+    const NMOMX: usize = 1;
+    const NERGY: usize = 2;
     
     // We use Array2 for the state vector U. 
     // Shape: (N_CELLS, 3) -> Rows are cells, Columns are [rho, mom, E]
-    let mut u      = Array2::<f64>::zeros((N_CELLS, 3));
-    let mut u_new  = Array2::<f64>::zeros((N_CELLS, 3));
-    let mut fluxes = Array2::<f64>::zeros((N_CELLS+1, 3));
+    let mut u      = SolutionArray::new(N_CELLS,   NVARS);
+    let mut u_new  = SolutionArray::new(N_CELLS,   NVARS);
+    let mut fluxes = SolutionArray::new(N_CELLS+1, NVARS);
     
     // --- B. Initial Conditions (Sod Shock Tube) ---
     // Left:  Rho=1.0,   P=1.0, u=0.0
@@ -41,9 +49,9 @@ fn main() -> std::io::Result<()> {
         let mom = rho * velocity;
         let energy = p / (GAMMA - 1.0) + 0.5 * rho * velocity * velocity;
 
-        u[[i, 0]] = rho;
-        u[[i, 1]] = mom;
-        u[[i, 2]] = energy;
+        u.data[[i, NDENS]] = rho;
+        u.data[[i, NMOMX]] = mom;
+        u.data[[i, NERGY]] = energy;
     }
 
     // --- C. Time Loop ---
@@ -80,13 +88,13 @@ fn main() -> std::io::Result<()> {
             let u_l = u.row(i-1);
             let u_r = u.row(i);
             
-            fluxes.row_mut(i)  .assign( &ldfss_flux(u_l.as_slice().unwrap(), u_r.as_slice().unwrap())  );
+            fluxes.row_mut(i).assign( &ldfss_flux(u_l.as_slice().unwrap(), u_r.as_slice().unwrap())  );
         }
         // Boundary Conditions (Transmissive / Zero Gradient)
         // Flux at 0 (Left Boundary) computed using cell 0 as both L and R (approximated)
         // or just copying flux from neighbor. 
-        fluxes.row_mut(0)       .assign( &ldfss_flux(u.row(0).as_slice().unwrap(), u.row(0).as_slice().unwrap()) );
-        fluxes.row_mut(N_CELLS) .assign( &ldfss_flux(u.row(N_CELLS-1).as_slice().unwrap(), u.row(N_CELLS-1).as_slice().unwrap()) );
+        fluxes.row_mut(0)      .assign( &ldfss_flux(u.row(0).as_slice().unwrap(), u.row(0).as_slice().unwrap()) );
+        fluxes.row_mut(N_CELLS).assign( &ldfss_flux(u.row(N_CELLS-1).as_slice().unwrap(), u.row(N_CELLS-1).as_slice().unwrap()) );
 
         // 3. Update Solution (Finite Volume Formulation)
         // U_new = U - dt/dx * (F_right - F_left)
@@ -96,11 +104,14 @@ fn main() -> std::io::Result<()> {
             u_new.row_mut(i).assign(  &(&u.row(i) - (dt/dx)*(&f_right - &f_left))  );
         }
         // Apply BCs to states (Zero Gradient)
-        u_new.row_mut(0).assign(&u_new.row(1).to_owned());
-        u_new.row_mut(N_CELLS-1).assign(&u_new.row(N_CELLS-2).to_owned());
+        let mut u_ghost = u_new.row(1).to_owned();
+        u_new.row_mut(0).assign(&u_ghost);
+        
+        u_ghost = u_new.row(N_CELLS-2).to_owned();
+        u_new.row_mut(N_CELLS-1).assign(&u_ghost);
 
         // Swap buffers
-        u.assign(&u_new);
+        u.data.assign(&u_new.data);
         
         t += dt;
         step += 1;
@@ -117,9 +128,9 @@ fn main() -> std::io::Result<()> {
 
     for i in 0..N_CELLS {
         let x = (i as f64 + 0.5) * dx;
-        let rho = u[[i, 0]];
-        let mom = u[[i, 1]];
-        let energy = u[[i, 2]];
+        let rho    = u.data[[i, NDENS]];
+        let mom    = u.data[[i, NMOMX]];
+        let energy = u.data[[i, NERGY]];
         
         let velocity = mom / rho;
         let p = get_pressure(u.row(i).as_slice().unwrap());

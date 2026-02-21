@@ -26,3 +26,6 @@ pub(crate) fn get_sound_speed(q: &[f64]) -> f64 {
     let rho = q[0];
     (GAMMA * p / rho).sqrt()
 }
+
+
+
