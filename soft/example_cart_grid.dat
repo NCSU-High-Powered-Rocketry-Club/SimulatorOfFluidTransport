@@ -1,0 +1,14 @@
+# Grid Type, 0 = Catersean
+0
+# Number of grid points in i, and j direction
+100
+100
+# Coordinate of i=0,j=0 corner
+0.0
+0.0
+# Length of grid in x=i, y=j
+1.0
+1.0
+
+# Read the grid in line-by line, the format depends on the grid type
+
