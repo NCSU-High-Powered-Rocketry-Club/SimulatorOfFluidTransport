@@ -25,6 +25,10 @@ euler_1d/target
 euler_1d/Cargo.lock
 euler_1d/sod_results.csv
 
-euler_1d_general/target
-euler_1d_general/Cargo.lock
-euler_1d_general/sod_results.csv
+soft/target
+soft/Cargo.lock
+
+
+# Added by cargo
+
+/target
