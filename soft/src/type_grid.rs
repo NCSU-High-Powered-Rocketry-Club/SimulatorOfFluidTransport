@@ -39,7 +39,8 @@ pub(crate) struct Grid {
     pub(crate) ni : usize,
     pub(crate) nj : usize,
     pub(crate) npoin : uzise,
-    pub(crate) nelem : uzise,
+    pub(crate) ncell : uzise,
+    pub(crate) nface : uzise,
 
     // Volume of cells (doing a cart grid for now 
     //               so just need one val suckers)
@@ -92,7 +93,8 @@ pub(crate) impl Grid {
         assert!(p1.x>p0.x and p1.y>p0.y, "donkey")
         //Now have all information we need to assemble a cartesean grid
         let npoin = ni * nj;
-        let nelem = (ni-1) * (nj-1);
+        let ncell = (ni-1) * (nj-1);
+        let nface = ncell*2.0 + (ni-1) + (nj-1);
 
         // Face length
         let fleni = (p1.x-p0.x) / (ni-1);
@@ -112,8 +114,12 @@ pub(crate) impl Grid {
             }
         }
 
-        Grid {ni,nj,npoin,nelem,fleni,flenj,vol,coords,
+        Grid {ni,nj,npoin,ncell,nface,fleni,flenj,vol,coords,
             itype : GridType::CartMesh}
 
+    }
+
+    pub(crate) fn flat_index(&self, i:usize, j:usize) -> usize {
+        j*self.ni + i;
     }
 }

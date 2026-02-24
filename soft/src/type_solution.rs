@@ -10,7 +10,7 @@ pub(crate) struct SolutionArray {
 
 impl SolutionArray {
 
-    pub fn new(num_points : usize, num_variables : usize) -> Self {
+    pub fn new(num_points_i : usize, num_points)j : usize, num_variables : usize) -> Self {
         Self{data : Array2::<f64>::zeros((num_points, num_variables))} 
     }
     

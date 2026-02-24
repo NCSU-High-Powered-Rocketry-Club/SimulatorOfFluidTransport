@@ -19,18 +19,27 @@ use crate::type_solution::SolutionArray;
 
 fn main() -> std::io::Result<()> {
     // --- A. Grid Initialization ---
-    let dx = L_DOMAIN / (N_CELLS as f64);
-    // 
+    let mut grid_file = File::create("grid.dat")?;
+    grid = Grid::new(grid_file);
+    drop(grid_file);
+
     // We use Array2 for the state vector U. 
     // Shape: (N_CELLS, 3) -> Rows are cells, Columns are [rho, mom, E]
-    let mut u      = SolutionArray::new(N_CELLS,   NVARS);
-    let mut u_new  = SolutionArray::new(N_CELLS,   NVARS);
-    let mut fluxes = SolutionArray::new(N_CELLS+1, NVARS);
+    static ncell: usize = grid.ncell;
+    static nface: usize = grid.nface;
+    //
+    let mut u      = SolutionArray::new(ncell,   NVARS);
+    let mut u_new  = SolutionArray::new(ncell,   NVARS);
+    let mut fluxes = SolutionArray::new(nface, NVARS);
     
     // --- B. Initial Conditions (Sod Shock Tube) ---
-    for i in 0..N_CELLS {
-        let x = (i as f64 + 0.5) * dx;
-        initialize_sod_shock(x, u.row_mut(i))
+    for i in 0..ni{
+        for j in 0..nj{
+            let index = grid.flat_index(i,j):
+            let point = grid.coords[index]:
+            let x_eff = max(point.x, point.y);
+            initialize_sod_shock(x_eff, u.row_mut(index));
+        }
     }
 
     // --- C. Time Loop ---
